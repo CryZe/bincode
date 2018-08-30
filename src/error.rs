@@ -116,11 +116,11 @@ impl fmt::Display for ErrorKind {
     }
 }
 
-// impl serde::de::Error for Error {
-//     fn custom<T: fmt::Display>(desc: T) -> Error {
-//         ErrorKind::Custom(desc.to_string()).into()
-//     }
-// }
+impl serde::de::Error for Error {
+    fn custom<T: fmt::Display>(_msg: T) -> Self {
+        ErrorKind::Serde
+    }
+}
 
 impl serde::ser::Error for Error {
     fn custom<T: fmt::Display>(_msg: T) -> Self {

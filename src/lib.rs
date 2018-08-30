@@ -42,7 +42,7 @@ extern crate serde;
 pub extern crate arrayvec;
 
 mod config;
-// mod de;
+mod de;
 mod error;
 mod internal;
 mod ser;
@@ -50,7 +50,7 @@ mod ser;
 use arrayvec::{Array, ArrayVec};
 
 pub use config::Config;
-// pub use de::read::{BincodeRead, IoReader, SliceReader};
+pub use de::read::{BincodeRead, SliceReader};
 pub use error::{Error, ErrorKind, Result};
 
 /// An object that implements this trait can be passed a
@@ -145,12 +145,12 @@ where
 // }
 
 /// Deserializes a slice of bytes into an instance of `T` using the default configuration.
-// pub fn deserialize<'a, T>(bytes: &'a [u8]) -> Result<T>
-// where
-//     T: serde::de::Deserialize<'a>,
-// {
-//     config().deserialize(bytes)
-// }
+pub fn deserialize<'a, T>(bytes: &'a [u8]) -> Result<T>
+where
+    T: serde::de::Deserialize<'a>,
+{
+    config().deserialize(bytes)
+}
 
 /// Returns the size that an object would be if serialized using Bincode with the default configuration.
 pub fn serialized_size<T: ?Sized>(value: &T) -> Result<u64>

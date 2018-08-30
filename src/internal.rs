@@ -1,7 +1,7 @@
 use arrayvec::{Array, ArrayVec};
 use serde;
 
-use config::{Options, OptionsExt};
+use config::Options;
 // use de::read::BincodeRead;
 use {ErrorKind, Result};
 
@@ -107,16 +107,16 @@ where
 //     serde::Deserialize::deserialize_in_place(&mut deserializer, place)
 // }
 
-// pub(crate) fn deserialize<'a, T, O>(bytes: &'a [u8], options: O) -> Result<T>
-// where
-//     T: serde::de::Deserialize<'a>,
-//     O: Options,
-// {
-//     let reader = ::de::read::SliceReader::new(bytes);
-//     let options = ::config::WithOtherLimit::new(options, Infinite);
-//     let mut deserializer = ::de::Deserializer::new(reader, options);
-//     serde::Deserialize::deserialize(&mut deserializer)
-// }
+pub(crate) fn deserialize<'a, T, O>(bytes: &'a [u8], options: O) -> Result<T>
+where
+    T: serde::de::Deserialize<'a>,
+    O: Options,
+{
+    let reader = ::de::read::SliceReader::new(bytes);
+    let options = ::config::WithOtherLimit::new(options, Infinite);
+    let mut deserializer = ::de::Deserializer::new(reader, options);
+    serde::Deserialize::deserialize(&mut deserializer)
+}
 
 pub(crate) trait SizeLimit: Clone {
     /// Tells the SizeLimit that a certain number of bytes has been
