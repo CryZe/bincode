@@ -1,8 +1,8 @@
-use std::io::{Read, Write};
+use arrayvec::{Array, ArrayVec};
 use serde;
 
 use config::{Options, OptionsExt};
-use de::read::BincodeRead;
+// use de::read::BincodeRead;
 use {ErrorKind, Result};
 
 #[derive(Clone)]
@@ -11,9 +11,13 @@ struct CountSize<L: SizeLimit> {
     other_limit: L,
 }
 
-pub(crate) fn serialize_into<W, T: ?Sized, O>(writer: W, value: &T, mut options: O) -> Result<()>
+pub(crate) fn serialize_into<A, T: ?Sized, O>(
+    writer: &mut ArrayVec<A>,
+    value: &T,
+    mut options: O,
+) -> Result<()>
 where
-    W: Write,
+    A: Array<Item = u8>,
     T: serde::Serialize,
     O: Options,
 {
@@ -27,19 +31,19 @@ where
     serde::Serialize::serialize(value, &mut serializer)
 }
 
-pub(crate) fn serialize<T: ?Sized, O>(value: &T, mut options: O) -> Result<Vec<u8>>
-where
-    T: serde::Serialize,
-    O: Options,
-{
-    let mut writer = {
-        let actual_size = serialized_size(value, &mut options)?;
-        Vec::with_capacity(actual_size as usize)
-    };
+// pub(crate) fn serialize<T: ?Sized, O>(value: &T, mut options: O) -> Result<Vec<u8>>
+// where
+//     T: serde::Serialize,
+//     O: Options,
+// {
+//     let mut writer = {
+//         let actual_size = serialized_size(value, &mut options)?;
+//         Vec::with_capacity(actual_size as usize)
+//     };
 
-    serialize_into(&mut writer, value, options.with_no_limit())?;
-    Ok(writer)
-}
+//     serialize_into(&mut writer, value, options.with_no_limit())?;
+//     Ok(writer)
+// }
 
 impl<L: SizeLimit> SizeLimit for CountSize<L> {
     fn add(&mut self, c: u64) -> Result<()> {
@@ -72,48 +76,47 @@ where
     result.map(|_| size_counter.options.new_limit.total)
 }
 
-pub(crate) fn deserialize_from<R, T, O>(reader: R, options: O) -> Result<T>
-where
-    R: Read,
-    T: serde::de::DeserializeOwned,
-    O: Options,
-{
-    let reader = ::de::read::IoReader::new(reader);
-    let mut deserializer = ::de::Deserializer::<_, O>::new(reader, options);
-    serde::Deserialize::deserialize(&mut deserializer)
-}
+// pub(crate) fn deserialize_from<R, T, O>(reader: R, options: O) -> Result<T>
+// where
+//     R: Read,
+//     T: serde::de::DeserializeOwned,
+//     O: Options,
+// {
+//     let reader = ::de::read::IoReader::new(reader);
+//     let mut deserializer = ::de::Deserializer::<_, O>::new(reader, options);
+//     serde::Deserialize::deserialize(&mut deserializer)
+// }
 
-pub(crate) fn deserialize_from_custom<'a, R, T, O>(reader: R, options: O) -> Result<T>
-where
-    R: BincodeRead<'a>,
-    T: serde::de::DeserializeOwned,
-    O: Options,
-{
-    let mut deserializer = ::de::Deserializer::<_, O>::new(reader, options);
-    serde::Deserialize::deserialize(&mut deserializer)
-}
+// pub(crate) fn deserialize_from_custom<'a, R, T, O>(reader: R, options: O) -> Result<T>
+// where
+//     R: BincodeRead<'a>,
+//     T: serde::de::DeserializeOwned,
+//     O: Options,
+// {
+//     let mut deserializer = ::de::Deserializer::<_, O>::new(reader, options);
+//     serde::Deserialize::deserialize(&mut deserializer)
+// }
 
-pub(crate) fn deserialize_in_place<'a, R, T, O>(reader: R, options: O, place: &mut T) -> Result<()>
-where
-    R: BincodeRead<'a>,
-    T: serde::de::Deserialize<'a>,
-    O: Options,
-{
-    let mut deserializer = ::de::Deserializer::<_, _>::new(reader, options);
-    serde::Deserialize::deserialize_in_place(&mut deserializer, place)
-}
+// pub(crate) fn deserialize_in_place<'a, R, T, O>(reader: R, options: O, place: &mut T) -> Result<()>
+// where
+//     R: BincodeRead<'a>,
+//     T: serde::de::Deserialize<'a>,
+//     O: Options,
+// {
+//     let mut deserializer = ::de::Deserializer::<_, _>::new(reader, options);
+//     serde::Deserialize::deserialize_in_place(&mut deserializer, place)
+// }
 
-pub(crate) fn deserialize<'a, T, O>(bytes: &'a [u8], options: O) -> Result<T>
-where
-    T: serde::de::Deserialize<'a>,
-    O: Options,
-{
-    let reader = ::de::read::SliceReader::new(bytes);
-    let options = ::config::WithOtherLimit::new(options, Infinite);
-    let mut deserializer = ::de::Deserializer::new(reader, options);
-    serde::Deserialize::deserialize(&mut deserializer)
-}
-
+// pub(crate) fn deserialize<'a, T, O>(bytes: &'a [u8], options: O) -> Result<T>
+// where
+//     T: serde::de::Deserialize<'a>,
+//     O: Options,
+// {
+//     let reader = ::de::read::SliceReader::new(bytes);
+//     let options = ::config::WithOtherLimit::new(options, Infinite);
+//     let mut deserializer = ::de::Deserializer::new(reader, options);
+//     serde::Deserialize::deserialize(&mut deserializer)
+// }
 
 pub(crate) trait SizeLimit: Clone {
     /// Tells the SizeLimit that a certain number of bytes has been
@@ -122,7 +125,6 @@ pub(crate) trait SizeLimit: Clone {
     /// Returns the hard limit (if one exists)
     fn limit(&self) -> Option<u64>;
 }
-
 
 /// A SizeLimit that restricts serialized or deserialized messages from
 /// exceeding a certain byte length.
@@ -141,7 +143,7 @@ impl SizeLimit for Bounded {
             self.0 -= n;
             Ok(())
         } else {
-            Err(Box::new(ErrorKind::SizeLimit))
+            Err(ErrorKind::SizeLimit)
         }
     }
 

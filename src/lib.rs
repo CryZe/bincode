@@ -1,4 +1,4 @@
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 
 //! Bincode is a crate for encoding and decoding using a tiny binary
 //! serialization strategy.  Using it, you can easily go from having
@@ -19,18 +19,19 @@
 //!     assert_eq!(target, decoded);
 //! }
 //! ```
-//! 
+//!
 //! ### 128bit numbers
-//! 
-//! Support for `i128` and `u128` on Rust toolchains after `1.26.0` is 
-//! enabled through the `i128` feature. Add the following to your 
+//!
+//! Support for `i128` and `u128` on Rust toolchains after `1.26.0` is
+//! enabled through the `i128` feature. Add the following to your
 //! `Cargo.toml`:
-//! 
+//!
 //! ```toml,ignore
 //! [dependencies.bincode]
 //! features = ["i128"]
 //! ```
 
+#![no_std]
 #![crate_name = "bincode"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
@@ -38,16 +39,19 @@
 extern crate byteorder;
 #[macro_use]
 extern crate serde;
+pub extern crate arrayvec;
 
 mod config;
-mod ser;
+// mod de;
 mod error;
-mod de;
 mod internal;
+mod ser;
 
-pub use error::{Error, ErrorKind, Result};
+use arrayvec::{Array, ArrayVec};
+
 pub use config::Config;
-pub use de::read::{BincodeRead, IoReader, SliceReader};
+// pub use de::read::{BincodeRead, IoReader, SliceReader};
+pub use error::{Error, ErrorKind, Result};
 
 /// An object that implements this trait can be passed a
 /// serde::Deserializer without knowing its concrete type.
@@ -88,65 +92,65 @@ pub fn config() -> Config {
 ///
 /// If the serialization would take more bytes than allowed by the size limit, an error
 /// is returned and *no bytes* will be written into the `Writer`.
-pub fn serialize_into<W, T: ?Sized>(writer: W, value: &T) -> Result<()>
+pub fn serialize_into<A, T: ?Sized>(writer: &mut ArrayVec<A>, value: &T) -> Result<()>
 where
-    W: std::io::Write,
+    A: Array<Item = u8>,
     T: serde::Serialize,
 {
     config().serialize_into(writer, value)
 }
 
 /// Serializes a serializable object into a `Vec` of bytes using the default configuration.
-pub fn serialize<T: ?Sized>(value: &T) -> Result<Vec<u8>>
-where
-    T: serde::Serialize,
-{
-    config().serialize(value)
-}
+// pub fn serialize<T: ?Sized>(value: &T) -> Result<Vec<u8>>
+// where
+//     T: serde::Serialize,
+// {
+//     config().serialize(value)
+// }
 
 /// Deserializes an object directly from a `Read`er using the default configuration.
 ///
 /// If this returns an `Error`, `reader` may be in an invalid state.
-pub fn deserialize_from<R, T>(reader: R) -> Result<T>
-where
-    R: std::io::Read,
-    T: serde::de::DeserializeOwned,
-{
-    config().deserialize_from(reader)
-}
+// pub fn deserialize_from<R, T>(reader: R) -> Result<T>
+// where
+//     R: core_io::Read,
+//     T: serde::de::DeserializeOwned,
+// {
+//     config().deserialize_from(reader)
+// }
 
 /// Deserializes an object from a custom `BincodeRead`er using the default configuration.
 /// It is highly recommended to use `deserialize_from` unless you need to implement
 /// `BincodeRead` for performance reasons.
 ///
 /// If this returns an `Error`, `reader` may be in an invalid state.
-pub fn deserialize_from_custom<'a, R, T>(reader: R) -> Result<T>
-where
-    R: de::read::BincodeRead<'a>,
-    T: serde::de::DeserializeOwned,
-{
-    config().deserialize_from_custom(reader)
-}
+// pub fn deserialize_from_custom<'a, R, T>(reader: R) -> Result<T>
+// where
+//     R: de::read::BincodeRead<'a>,
+//     T: serde::de::DeserializeOwned,
+// {
+//     config().deserialize_from_custom(reader)
+// }
 
 /// Only use this if you know what you're doing.
 ///
 /// This is part of the public API.
-#[doc(hidden)]
-pub fn deserialize_in_place<'a, R, T>(reader: R, place: &mut T) -> Result<()>
-where
-    T: serde::de::Deserialize<'a>,
-    R: BincodeRead<'a>
-{
-    config().deserialize_in_place(reader, place)
-}
+// #[doc(hidden)]
+// pub fn deserialize_in_place<'a, R, T>(reader: R, place: &mut T) -> Result<()>
+// where
+//     T: serde::de::Deserialize<'a>,
+//     R: BincodeRead<'a>,
+// {
+//     config().deserialize_in_place(reader, place)
+// }
 
 /// Deserializes a slice of bytes into an instance of `T` using the default configuration.
-pub fn deserialize<'a, T>(bytes: &'a [u8]) -> Result<T>
-where
-    T: serde::de::Deserialize<'a>,
-{
-    config().deserialize(bytes)
-}
+// pub fn deserialize<'a, T>(bytes: &'a [u8]) -> Result<T>
+// where
+//     T: serde::de::Deserialize<'a>,
+// {
+//     config().deserialize(bytes)
+// }
 
 /// Returns the size that an object would be if serialized using Bincode with the default configuration.
 pub fn serialized_size<T: ?Sized>(value: &T) -> Result<u64>
@@ -158,20 +162,22 @@ where
 
 /// Executes the acceptor with a serde::Deserializer instance.
 /// NOT A PART OF THE STABLE PUBLIC API
-#[doc(hidden)]
-pub fn with_deserializer<'a, A,  R>(reader: R, acceptor: A) -> A::Output
-where A: DeserializerAcceptor<'a>,
-        R: BincodeRead<'a>
-{
-    config().with_deserializer(reader, acceptor)
-}
+// #[doc(hidden)]
+// pub fn with_deserializer<'a, A, R>(reader: R, acceptor: A) -> A::Output
+// where
+//     A: DeserializerAcceptor<'a>,
+//     R: BincodeRead<'a>,
+// {
+//     config().with_deserializer(reader, acceptor)
+// }
 
 /// Executes the acceptor with a serde::Serializer instance.
 /// NOT A PART OF THE STABLE PUBLIC API
 #[doc(hidden)]
-pub fn with_serializer<A, W>(writer: W, acceptor: A) -> A::Output
-where A: SerializerAcceptor,
-    W: std::io::Write
+pub fn with_serializer<AV, A, W>(writer: &mut ArrayVec<AV>, acceptor: A) -> A::Output
+where
+    A: SerializerAcceptor,
+    AV: Array<Item = u8>,
 {
     config().with_serializer(writer, acceptor)
 }

@@ -1,13 +1,15 @@
-use std::io::Write;
-use std::u32;
+use core::u32;
 
+use arrayvec::{Array, ArrayVec};
 use serde;
 
-use byteorder::WriteBytesExt;
+// use byteorder::WriteBytesExt;
+use byteorder::ByteOrder;
 
-use super::{Result, Error, ErrorKind};
-use ::config::Options;
 use super::internal::SizeLimit;
+use super::{Error, ErrorKind, Result};
+use config::Options;
+use core::fmt::{Display, Write};
 
 /// An Serializer that encodes values directly into a Writer.
 ///
@@ -16,14 +18,14 @@ use super::internal::SizeLimit;
 ///
 /// This struct should not be used often.
 /// For most cases, prefer the `encode_into` function.
-pub(crate) struct Serializer<W, O: Options> {
-    writer: W,
+pub(crate) struct Serializer<'w, A: Array<Item = u8> + 'w, O: Options> {
+    writer: &'w mut ArrayVec<A>,
     _options: O,
 }
 
-impl<W: Write, O: Options> Serializer<W, O> {
+impl<'w, A: Array<Item = u8>, O: Options> Serializer<'w, A, O> {
     /// Creates a new Serializer with the given `Write`r.
-    pub fn new(w: W, options: O) -> Serializer<W, O> {
+    pub fn new(w: &'w mut ArrayVec<A>, options: O) -> Serializer<'w, A, O> {
         Serializer {
             writer: w,
             _options: options,
@@ -31,16 +33,16 @@ impl<W: Write, O: Options> Serializer<W, O> {
     }
 }
 
-impl<'a, W: Write, O: Options> serde::Serializer for &'a mut Serializer<W, O> {
+impl<'a, 'w, A: Array<Item = u8>, O: Options> serde::Serializer for &'a mut Serializer<'w, A, O> {
     type Ok = ();
     type Error = Error;
-    type SerializeSeq = Compound<'a, W, O>;
-    type SerializeTuple = Compound<'a, W, O>;
-    type SerializeTupleStruct = Compound<'a, W, O>;
-    type SerializeTupleVariant = Compound<'a, W, O>;
-    type SerializeMap = Compound<'a, W, O>;
-    type SerializeStruct = Compound<'a, W, O>;
-    type SerializeStructVariant = Compound<'a, W, O>;
+    type SerializeSeq = Compound<'a, 'w, A, O>;
+    type SerializeTuple = Compound<'a, 'w, A, O>;
+    type SerializeTupleStruct = Compound<'a, 'w, A, O>;
+    type SerializeTupleVariant = Compound<'a, 'w, A, O>;
+    type SerializeMap = Compound<'a, 'w, A, O>;
+    type SerializeStruct = Compound<'a, 'w, A, O>;
+    type SerializeStructVariant = Compound<'a, 'w, A, O>;
 
     fn serialize_unit(self) -> Result<()> {
         Ok(())
@@ -51,41 +53,71 @@ impl<'a, W: Write, O: Options> serde::Serializer for &'a mut Serializer<W, O> {
     }
 
     fn serialize_bool(self, v: bool) -> Result<()> {
-        self.writer.write_u8(if v { 1 } else { 0 }).map_err(
-            Into::into,
-        )
+        self.writer
+            .try_push(if v { 1 } else { 0 })
+            .map_err(Into::into)
     }
 
     fn serialize_u8(self, v: u8) -> Result<()> {
-        self.writer.write_u8(v).map_err(Into::into)
+        self.writer.try_push(v).map_err(Into::into)
     }
 
     fn serialize_u16(self, v: u16) -> Result<()> {
-        self.writer.write_u16::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 2];
+        O::Endian::write_u16(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_u32(self, v: u32) -> Result<()> {
-        self.writer.write_u32::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 4];
+        O::Endian::write_u32(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_u64(self, v: u64) -> Result<()> {
-        self.writer.write_u64::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 8];
+        O::Endian::write_u64(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_i8(self, v: i8) -> Result<()> {
-        self.writer.write_i8(v).map_err(Into::into)
+        self.writer.try_push(v as u8).map_err(Into::into)
     }
 
     fn serialize_i16(self, v: i16) -> Result<()> {
-        self.writer.write_i16::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 2];
+        O::Endian::write_i16(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_i32(self, v: i32) -> Result<()> {
-        self.writer.write_i32::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 4];
+        O::Endian::write_i32(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_i64(self, v: i64) -> Result<()> {
-        self.writer.write_i64::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 8];
+        O::Endian::write_i64(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     #[cfg(feature = "i128")]
@@ -101,54 +133,81 @@ impl<'a, W: Write, O: Options> serde::Serializer for &'a mut Serializer<W, O> {
     serde_if_integer128! {
         #[cfg(not(feature = "i128"))]
         fn serialize_u128(self, v: u128) -> Result<()> {
-            use serde::ser::Error;
-
             let _ = v;
-            Err(Error::custom("u128 is not supported. Enable the `i128` feature of `bincode`"))
+            panic!("u128 is not supported. Enable the `i128` feature of `bincode`")
         }
 
         #[cfg(not(feature = "i128"))]
         fn serialize_i128(self, v: i128) -> Result<()> {
-            use serde::ser::Error;
-            
             let _ = v;
-            Err(Error::custom("i128 is not supported. Enable the `i128` feature of `bincode`"))
+            panic!("i128 is not supported. Enable the `i128` feature of `bincode`")
         }
     }
 
     fn serialize_f32(self, v: f32) -> Result<()> {
-        self.writer.write_f32::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 4];
+        O::Endian::write_f32(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_f64(self, v: f64) -> Result<()> {
-        self.writer.write_f64::<O::Endian>(v).map_err(Into::into)
+        let mut buf = [0; 8];
+        O::Endian::write_f64(&mut buf, v);
+        for &val in &buf {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
+    }
+
+    fn collect_str<T: ?Sized>(self, value: &T) -> Result<()>
+    where
+        T: Display,
+    {
+        let pos = self.writer.len();
+        try!(self.serialize_u64(0));
+        write!(ArrayVecWrite(self.writer), "{}", value)?;
+        let new_pos = self.writer.len();
+        let len = new_pos - pos - 8;
+        O::Endian::write_u64(&mut self.writer[pos..], len as u64);
+        Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<()> {
         try!(self.serialize_u64(v.len() as u64));
-        self.writer.write_all(v.as_bytes()).map_err(Into::into)
+        for &val in v.as_bytes() {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_char(self, c: char) -> Result<()> {
-        self.writer.write_all(encode_utf8(c).as_slice()).map_err(
-            Into::into,
-        )
+        for &val in encode_utf8(c).as_slice() {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         try!(self.serialize_u64(v.len() as u64));
-        self.writer.write_all(v).map_err(Into::into)
+        for &val in v {
+            self.writer.try_push(val)?;
+        }
+        Ok(())
     }
 
     fn serialize_none(self) -> Result<()> {
-        self.writer.write_u8(0).map_err(Into::into)
+        self.writer.try_push(0)?;
+        Ok(())
     }
 
     fn serialize_some<T: ?Sized>(self, v: &T) -> Result<()>
     where
         T: serde::Serialize,
     {
-        try!(self.writer.write_u8(1));
+        self.writer.try_push(1)?;
         v.serialize(self)
     }
 
@@ -251,8 +310,30 @@ impl<O: Options> SizeChecker<O> {
     }
 
     fn add_value<T>(&mut self, t: T) -> Result<()> {
-        use std::mem::size_of_val;
+        use core::mem::size_of_val;
         self.add_raw(size_of_val(&t) as u64)
+    }
+}
+
+use core::fmt;
+
+struct ArrayVecWrite<'a, A: Array<Item = u8> + 'a>(&'a mut ArrayVec<A>);
+
+impl<'a, A: Array<Item = u8>> fmt::Write for ArrayVecWrite<'a, A> {
+    fn write_str(&mut self, s: &str) -> ::core::result::Result<(), fmt::Error> {
+        for &b in s.as_bytes() {
+            self.0.try_push(b).map_err(|_| fmt::Error)?;
+        }
+        Ok(())
+    }
+}
+
+struct CountWrite(usize);
+
+impl fmt::Write for CountWrite {
+    fn write_str(&mut self, s: &str) -> ::core::result::Result<(), fmt::Error> {
+        self.0 += s.len();
+        Ok(())
     }
 }
 
@@ -327,6 +408,17 @@ impl<'a, O: Options> serde::Serializer for &'a mut SizeChecker<O> {
 
     fn serialize_f64(self, v: f64) -> Result<()> {
         self.add_value(v)
+    }
+
+    fn collect_str<T: ?Sized>(self, value: &T) -> Result<()>
+    where
+        T: Display,
+    {
+        self.add_value(0 as u64)?;
+        let mut count_write = CountWrite(0);
+        write!(&mut count_write, "{}", value)?;
+        self.add_raw(count_write.0 as u64);
+        Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<()> {
@@ -440,13 +532,13 @@ impl<'a, O: Options> serde::Serializer for &'a mut SizeChecker<O> {
     }
 }
 
-pub(crate) struct Compound<'a, W: 'a, O: Options + 'a> {
-    ser: &'a mut Serializer<W, O>,
+pub(crate) struct Compound<'a, 'w: 'a, A: Array<Item = u8> + 'w + 'a, O: Options + 'a> {
+    ser: &'a mut Serializer<'w, A, O>,
 }
 
-impl<'a, W, O> serde::ser::SerializeSeq for Compound<'a, W, O>
+impl<'a, 'w, A, O> serde::ser::SerializeSeq for Compound<'a, 'w, A, O>
 where
-    W: Write,
+    A: Array<Item = u8>,
     O: Options,
 {
     type Ok = ();
@@ -466,9 +558,9 @@ where
     }
 }
 
-impl<'a, W, O> serde::ser::SerializeTuple for Compound<'a, W, O>
+impl<'a, 'w, A, O> serde::ser::SerializeTuple for Compound<'a, 'w, A, O>
 where
-    W: Write,
+    A: Array<Item = u8>,
     O: Options,
 {
     type Ok = ();
@@ -488,9 +580,9 @@ where
     }
 }
 
-impl<'a, W, O> serde::ser::SerializeTupleStruct for Compound<'a, W, O>
+impl<'a, 'w, A, O> serde::ser::SerializeTupleStruct for Compound<'a, 'w, A, O>
 where
-    W: Write,
+    A: Array<Item = u8>,
     O: Options,
 {
     type Ok = ();
@@ -510,9 +602,9 @@ where
     }
 }
 
-impl<'a, W, O> serde::ser::SerializeTupleVariant for Compound<'a, W, O>
+impl<'a, 'w, A, O> serde::ser::SerializeTupleVariant for Compound<'a, 'w, A, O>
 where
-    W: Write,
+    A: Array<Item = u8>,
     O: Options,
 {
     type Ok = ();
@@ -532,9 +624,9 @@ where
     }
 }
 
-impl<'a, W, O> serde::ser::SerializeMap for Compound<'a, W, O>
+impl<'a, 'w, A, O> serde::ser::SerializeMap for Compound<'a, 'w, A, O>
 where
-    W: Write,
+    A: Array<Item = u8>,
     O: Options,
 {
     type Ok = ();
@@ -562,9 +654,9 @@ where
     }
 }
 
-impl<'a, W, O> serde::ser::SerializeStruct for Compound<'a, W, O>
+impl<'a, 'w, A, O> serde::ser::SerializeStruct for Compound<'a, 'w, A, O>
 where
-    W: Write,
+    A: Array<Item = u8>,
     O: Options,
 {
     type Ok = ();
@@ -584,9 +676,9 @@ where
     }
 }
 
-impl<'a, W, O> serde::ser::SerializeStructVariant for Compound<'a, W, O>
+impl<'a, 'w, A, O> serde::ser::SerializeStructVariant for Compound<'a, 'w, A, O>
 where
-    W: Write,
+    A: Array<Item = u8>,
     O: Options,
 {
     type Ok = ();
@@ -682,7 +774,7 @@ impl<'a, O: Options> serde::ser::SerializeTupleVariant for SizeCompound<'a, O> {
     }
 }
 
-impl<'a, O: Options+ 'a> serde::ser::SerializeMap for SizeCompound<'a, O> {
+impl<'a, O: Options + 'a> serde::ser::SerializeMap for SizeCompound<'a, O> {
     type Ok = ();
     type Error = Error;
 
