@@ -1,8 +1,6 @@
-use std::io::Read;
 use ::config::Options;
 
 use serde;
-use byteorder::ReadBytesExt;
 use serde::de::IntoDeserializer;
 use serde::de::Error as DeError;
 use ::{Error, ErrorKind, Result};
@@ -10,6 +8,23 @@ use ::internal::SizeLimit;
 use self::read::BincodeRead;
 
 pub mod read;
+use self::read::SliceReader;
+
+// struct Cursor<'a> {
+//     pos: usize,
+//     slice: &'a [u8],
+// }
+
+// impl<'a> Cursor<'a> {
+//     fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+//         if self.pos + buf.len() > self.slice.len() {
+//             return Err(ErrorKind::SizeLimit);
+//         }
+//         buf.copy_from_slice(&self.slice[self.pos..][..buf.len()]);
+//         self.pos += buf.len();
+//         Ok(())
+//     }
+// }
 
 /// A Deserializer that reads bytes from a buffer.
 ///
@@ -24,14 +39,14 @@ pub mod read;
 /// serde::Deserialize::deserialize(&mut deserializer);
 /// let bytes_read = d.bytes_read();
 /// ```
-pub(crate) struct Deserializer<R, O: Options> {
-    reader: R,
+pub(crate) struct Deserializer<'a, O: Options>{
+    reader: SliceReader<'a>,
     options: O,
 }
 
-impl<'de, R: BincodeRead<'de>, O: Options> Deserializer<R, O> {
+impl<'a, 'de, O: Options> Deserializer<'a, O> {
     /// Creates a new Deserializer with a given `Read`er and a size_limit.
-    pub(crate) fn new(r: R, options: O) -> Deserializer<R, O> {
+    pub(crate) fn new(r: SliceReader<'a>, options: O) -> Deserializer<'a, O> {
         Deserializer {
             reader: r,
             options: options,
@@ -43,20 +58,20 @@ impl<'de, R: BincodeRead<'de>, O: Options> Deserializer<R, O> {
     }
 
     fn read_type<T>(&mut self) -> Result<()> {
-        use std::mem::size_of;
+        use core::mem::size_of;
         self.read_bytes(size_of::<T>() as u64)
     }
 
-    fn read_vec(&mut self) -> Result<Vec<u8>> {
-        let len: usize = try!(serde::Deserialize::deserialize(&mut *self));
-        self.read_bytes(len as u64)?;
-        self.reader.get_byte_buffer(len)
-    }
+    // fn read_vec(&mut self) -> Result<Vec<u8>> {
+    //     let len: usize = try!(serde::Deserialize::deserialize(&mut *self));
+    //     self.read_bytes(len as u64)?;
+    //     self.reader.get_byte_buffer(len)
+    // }
 
-    fn read_string(&mut self) -> Result<String> {
-        let vec = self.read_vec()?;
-        String::from_utf8(vec).map_err(|e| ErrorKind::InvalidUtf8Encoding(e.utf8_error()).into())
-    }
+    // fn read_string(&mut self) -> Result<String> {
+    //     let vec = self.read_vec()?;
+    //     String::from_utf8(vec).map_err(|e| ErrorKind::InvalidUtf8Encoding(e.utf8_error()).into())
+    // }
 }
 
 macro_rules! impl_nums {
@@ -72,9 +87,8 @@ macro_rules! impl_nums {
     }
 }
 
-impl<'de, 'a, R, O> serde::Deserializer<'de> for &'a mut Deserializer<R, O>
+impl<'de, 'a, O> serde::Deserializer<'de> for &'a mut Deserializer<'de, O>
 where
-    R: BincodeRead<'de>,
     O: Options,
 {
     type Error = Error;
@@ -84,7 +98,7 @@ where
     where
         V: serde::de::Visitor<'de>,
     {
-        Err(Box::new(ErrorKind::DeserializeAnyNotSupported))
+        Err(ErrorKind::DeserializeAnyNotSupported)
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
@@ -140,7 +154,12 @@ where
         V: serde::de::Visitor<'de>,
     {
         try!(self.read_type::<u8>());
-        visitor.visit_u8(try!(self.reader.read_u8()))
+        if self.reader.slice.is_empty() {
+            return Err(ErrorKind::SizeLimit);
+        }
+        let value = self.reader.slice[0];
+        self.reader.slice = &self.reader.slice[1..];
+        visitor.visit_u8(value)
     }
 
     #[inline]
@@ -149,7 +168,12 @@ where
         V: serde::de::Visitor<'de>,
     {
         try!(self.read_type::<i8>());
-        visitor.visit_i8(try!(self.reader.read_i8()))
+        if self.reader.slice.is_empty() {
+            return Err(ErrorKind::SizeLimit);
+        }
+        let value = self.reader.slice[0];
+        self.reader.slice = &self.reader.slice[1..];
+        visitor.visit_i8(value as i8)
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
@@ -163,7 +187,7 @@ where
     where
         V: serde::de::Visitor<'de>,
     {
-        use std::str;
+        use core::str;
 
         let error = || ErrorKind::InvalidCharEncoding.into();
 
@@ -205,7 +229,7 @@ where
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_string(try!(self.read_string()))
+        self.deserialize_str(visitor)
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
@@ -221,7 +245,7 @@ where
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_byte_buf(try!(self.read_vec()))
+        self.deserialize_bytes(visitor)
     }
 
     fn deserialize_enum<V>(
@@ -233,8 +257,8 @@ where
     where
         V: serde::de::Visitor<'de>,
     {
-        impl<'de, 'a, R: 'a, O> serde::de::EnumAccess<'de> for &'a mut Deserializer<R, O>
-        where R: BincodeRead<'de>, O: Options {
+        impl<'de, 'a, O> serde::de::EnumAccess<'de> for &'a mut Deserializer<'de, O>
+        where O: Options {
             type Error = Error;
             type Variant = Self;
 
@@ -254,8 +278,8 @@ where
     where
         V: serde::de::Visitor<'de>,
     {
-        struct Access<'a, R: Read + 'a, O: Options + 'a> {
-            deserializer: &'a mut Deserializer<R, O>,
+        struct Access<'a, 'de: 'a, O: Options + 'a> {
+            deserializer: &'a mut Deserializer<'de, O>,
             len: usize,
         }
 
@@ -263,9 +287,8 @@ where
             'de,
             'a,
             'b: 'a,
-            R: BincodeRead<'de> + 'b,
             O: Options,
-        > serde::de::SeqAccess<'de> for Access<'a, R, O> {
+        > serde::de::SeqAccess<'de> for Access<'a, 'de, O> {
             type Error = Error;
 
             fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
@@ -320,8 +343,8 @@ where
     where
         V: serde::de::Visitor<'de>,
     {
-        struct Access<'a, R: Read + 'a, O: Options + 'a> {
-            deserializer: &'a mut Deserializer<R, O>,
+        struct Access<'a, 'de: 'a, O: Options + 'a> {
+            deserializer: &'a mut Deserializer<'de, O>,
             len: usize,
         }
 
@@ -329,9 +352,8 @@ where
             'de,
             'a,
             'b: 'a,
-            R: BincodeRead<'de> + 'b,
             O: Options,
-        > serde::de::MapAccess<'de> for Access<'a, R, O> {
+        > serde::de::MapAccess<'de> for Access<'a, 'de, O> {
             type Error = Error;
 
             fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
@@ -433,8 +455,8 @@ where
     }
 }
 
-impl<'de, 'a, R, O> serde::de::VariantAccess<'de> for &'a mut Deserializer<R, O>
-where R: BincodeRead<'de>, O: Options{
+impl<'de, 'a, O> serde::de::VariantAccess<'de> for &'a mut Deserializer<'de, O>
+where O: Options{
     type Error = Error;
 
     fn unit_variant(self) -> Result<()> {

@@ -4,7 +4,7 @@ use byteorder::{BigEndian, ByteOrder, LittleEndian, NativeEndian};
 use core::marker::PhantomData;
 use error::Result;
 use serde;
-use {DeserializerAcceptor, SerializerAcceptor};
+use SerializerAcceptor;
 // use de::read::BincodeRead;
 
 use self::EndianOption::*;
@@ -256,10 +256,10 @@ impl Config {
     }
 
     // /// Deserializes a slice of bytes into an instance of `T` using this configuration
-    // #[inline(always)]
-    // pub fn deserialize<'a, T: serde::Deserialize<'a>>(&self, bytes: &'a [u8]) -> Result<T> {
-    //     config_map!(self, opts => ::internal::deserialize(bytes, opts))
-    // }
+    #[inline(always)]
+    pub fn deserialize<'a, T: serde::Deserialize<'a>>(&self, bytes: &'a [u8]) -> Result<T> {
+        config_map!(self, opts => ::internal::deserialize(bytes, opts))
+    }
 
     // /// TODO: document
     // #[doc(hidden)]

@@ -417,7 +417,7 @@ impl<'a, O: Options> serde::Serializer for &'a mut SizeChecker<O> {
         self.add_value(0 as u64)?;
         let mut count_write = CountWrite(0);
         write!(&mut count_write, "{}", value)?;
-        self.add_raw(count_write.0 as u64);
+        self.add_raw(count_write.0 as u64)?;
         Ok(())
     }
 
